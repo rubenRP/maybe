@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
+ActiveRecord::Schema[7.2].define(version: 2025_05_22_201031) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -34,7 +34,6 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.uuid "import_id"
     t.uuid "plaid_account_id"
     t.boolean "scheduled_for_deletion", default: false
-    t.datetime "last_synced_at"
     t.decimal "cash_balance", precision: 19, scale: 4, default: "0.0"
     t.jsonb "locked_attributes", default: {}
     t.index ["accountable_id", "accountable_type"], name: "index_accounts_on_accountable_id_and_accountable_type"
@@ -222,16 +221,13 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.datetime "updated_at", null: false
     t.string "currency", default: "USD"
     t.string "locale", default: "en"
-    t.string "stripe_plan_id"
     t.string "stripe_customer_id"
-    t.string "stripe_subscription_status", default: "incomplete"
     t.string "date_format", default: "%m-%d-%Y"
     t.string "country", default: "US"
-    t.datetime "last_synced_at"
     t.string "timezone"
     t.boolean "data_enrichment_enabled", default: false
-    t.datetime "trial_started_at"
     t.boolean "early_access", default: false
+    t.boolean "auto_sync_on_login", default: true, null: false
   end
 
   create_table "holdings", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -448,7 +444,6 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.datetime "updated_at", null: false
     t.string "available_products", default: [], array: true
     t.string "billed_products", default: [], array: true
-    t.datetime "last_synced_at"
     t.string "plaid_region", default: "us", null: false
     t.string "institution_url"
     t.string "institution_id"
@@ -504,6 +499,7 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.boolean "active", default: false, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "name"
     t.index ["family_id"], name: "index_rules_on_family_id"
   end
 
@@ -517,9 +513,13 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.string "exchange_acronym"
     t.string "logo_url"
     t.string "exchange_operating_mic"
+    t.boolean "offline", default: false, null: false
+    t.datetime "failed_fetch_at"
+    t.integer "failed_fetch_count", default: 0, null: false
+    t.datetime "last_health_check_at"
+    t.index "upper((ticker)::text), COALESCE(upper((exchange_operating_mic)::text), ''::text)", name: "index_securities_on_ticker_and_exchange_operating_mic_unique", unique: true
     t.index ["country_code"], name: "index_securities_on_country_code"
     t.index ["exchange_operating_mic"], name: "index_securities_on_exchange_operating_mic"
-    t.index ["ticker", "exchange_operating_mic"], name: "index_securities_on_ticker_and_exchange_operating_mic", unique: true
   end
 
   create_table "security_prices", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -542,6 +542,7 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.uuid "active_impersonator_session_id"
     t.datetime "subscribed_at"
     t.jsonb "prev_transaction_page_params", default: {}
+    t.jsonb "data", default: {}
     t.index ["active_impersonator_session_id"], name: "index_sessions_on_active_impersonator_session_id"
     t.index ["user_id"], name: "index_sessions_on_user_id"
   end
@@ -554,39 +555,35 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
     t.index ["var"], name: "index_settings_on_var", unique: true
   end
 
-  create_table "stock_exchanges", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
-    t.string "name", null: false
-    t.string "acronym"
-    t.string "mic", null: false
-    t.string "country", null: false
-    t.string "country_code", null: false
-    t.string "city"
-    t.string "website"
-    t.string "timezone_name"
-    t.string "timezone_abbr"
-    t.string "timezone_abbr_dst"
-    t.string "currency_code"
-    t.string "currency_symbol"
-    t.string "currency_name"
+  create_table "subscriptions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "family_id", null: false
+    t.string "status", null: false
+    t.string "stripe_id"
+    t.decimal "amount", precision: 19, scale: 4
+    t.string "currency"
+    t.string "interval"
+    t.datetime "current_period_ends_at"
+    t.datetime "trial_ends_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["country"], name: "index_stock_exchanges_on_country"
-    t.index ["country_code"], name: "index_stock_exchanges_on_country_code"
-    t.index ["currency_code"], name: "index_stock_exchanges_on_currency_code"
+    t.index ["family_id"], name: "index_subscriptions_on_family_id", unique: true
   end
 
   create_table "syncs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "syncable_type", null: false
     t.uuid "syncable_id", null: false
-    t.datetime "last_ran_at"
-    t.date "start_date"
     t.string "status", default: "pending"
     t.string "error"
     t.jsonb "data"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.text "error_backtrace", array: true
     t.uuid "parent_id"
+    t.datetime "pending_at"
+    t.datetime "syncing_at"
+    t.datetime "completed_at"
+    t.datetime "failed_at"
+    t.date "window_start_date"
+    t.date "window_end_date"
     t.index ["parent_id"], name: "index_syncs_on_parent_id"
     t.index ["syncable_type", "syncable_id"], name: "index_syncs_on_syncable"
   end
@@ -742,6 +739,7 @@ ActiveRecord::Schema[7.2].define(version: 2025_05_01_172430) do
   add_foreign_key "security_prices", "securities"
   add_foreign_key "sessions", "impersonation_sessions", column: "active_impersonator_session_id"
   add_foreign_key "sessions", "users"
+  add_foreign_key "subscriptions", "families"
   add_foreign_key "syncs", "syncs", column: "parent_id"
   add_foreign_key "taggings", "tags"
   add_foreign_key "tags", "families"
